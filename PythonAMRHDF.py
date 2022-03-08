@@ -2,9 +2,12 @@
 
 # Python standard library imports
 import argparse
+import configparser
 import os
 import resource
+import shutil
 import timeit
+import xml.etree.ElementTree as ET
 
 # Third party packages
 import h5py as h5
@@ -654,6 +657,78 @@ else:
             return super().SetFileName(filename)
 
 
+def register_plugin():
+    # Check if ParaView settings file can be found - only add to most recent
+    # file
+    pv_config_files = ["ParaView5.10.0.ini",
+                       "ParaView5.9.1.ini",
+                       "ParaView5.9.0.ini"]
+    pv_config_path = os.path.expanduser("~/.config/ParaView")
+    pv_config_file = None
+    for filename in pv_config_files:
+        pv_config_file = os.path.join(pv_config_path, filename)
+        if os.path.exists(pv_config_file):
+            break
+
+    if not pv_config_file:
+        print("Could not find ParaView configuration file")
+        return
+
+    print(f"Using Paraview settings from: {pv_config_file}")
+    plugin_path = os.path.abspath(__file__)
+    print(f"Registering plugin: {plugin_path}")
+
+    config = configparser.ConfigParser()
+    config.optionxform = str
+    config.read(pv_config_file)
+
+    plugins_list = config['PluginsList']
+    for binary in plugins_list:
+        tree = ET.ElementTree(ET.fromstring(_unescape(plugins_list[binary])))
+        root = tree.getroot()
+        _add_plugin(root, plugin_path)
+
+        xml = ET.tostring(root, encoding='unicode', xml_declaration=True)
+        plugins_list[binary] = _escape(xml)
+
+    # Make backup and write configfile
+    shutil.copyfile(pv_config_file, pv_config_file + ".bak")
+    with open(pv_config_file, 'w') as fh:
+        config.write(fh, space_around_delimiters=False)
+
+
+def _add_plugin(root, plugin_path):
+    exists = False
+    for plugin in root.findall('Plugin'):
+        name = plugin.attrib['name']
+        if name == "PythonAMRHDF":
+            exists = True
+            break
+
+    if not exists:
+        plugin = ET.SubElement(root, 'Plugin',
+                               name="PythonAMRHDF",
+                               filename=plugin_path,
+                               auto_load="1")
+    else:
+        plugin.attrib['filename'] = plugin_path
+        plugin.attrib['auto_load'] = "1"
+
+
+def _unescape(value):
+    xml = bytes(value, "utf-8").decode("unicode_escape")
+    xml = xml[1:-2]
+    return xml
+
+
+def _escape(value):
+    """Dirty hacks to escape according to ParaView expectations"""
+    value = value.replace("\n", "\\n")
+    value = value.replace("\"", "\\\"")
+    value = '"' + value + '"'
+    return value
+
+
 def vth_to_hdf5(input, output):
     tic = timeit.default_timer()
     reader = vtk.vtkXMLUniformGridAMRReader()
@@ -685,9 +760,15 @@ def hdf5_to_vth(input, output):
 def main():
     desc = "Tool to convert between vtkOverlappingAMR and VTKHDF"
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument("input", help="Input file")
+    parser.add_argument("input", nargs='?', help="Input file")
     parser.add_argument("--output", help="Output file")
+    parser.add_argument("--register_plugin", action="store_true",
+                        default=False, help="Register ParaView plugin")
     args = parser.parse_args()
+
+    if args.register_plugin:
+        register_plugin()
+        return
 
     if not os.path.exists(args.input):
         raise RuntimeError("File does not exits: {}".format(args.input))
