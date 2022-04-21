@@ -168,7 +168,7 @@ class PythonAMRHDFBase(VTKPythonAlgorithmBase):
 
 
 class PythonAMRHDFWriter(PythonAMRHDFBase):
-    version = (2, 0)
+    version = (1, 0)
     type = "OverlappingAMR"
 
     def __init__(self):
@@ -230,9 +230,15 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
                      rdcc_w0=self.rdcc_w0, rdcc_nslots=self.rdcc_nslots) as fh:
             vtkhdf = fh.create_group("VTKHDF")
             vtkhdf.attrs.create("Version", self.version)
-            vtkhdf.attrs.create("Type", self.type)
+
+            typeattr = self.type.encode('ascii')
+            vtkhdf.attrs.create("Type", typeattr,
+                                dtype=h5.string_dtype('ascii', len(typeattr)))
             vtkhdf.attrs.create("Origin", self.global_origin)
-            vtkhdf.attrs.create("GridDescription", self.desc_to_str(self.desc))
+
+            descrattr = self.desc_to_str(self.desc).encode('ascii')
+            vtkhdf.attrs.create("GridDescription", descrattr,
+                                dtype=h5.string_dtype('ascii', len(descrattr)))
 
             # Strictly speaking not neccesary - possible to discuss
             # NumberOfLevels is very handy when reading back in
@@ -343,10 +349,14 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
         ncmp = arr["ncmp"]
 
         # Overall length of data is the offset + length of the last element
-        length = ncmp*(offset[-1, 0] + offset[-1, 1])
+        length = offset[-1, 0] + offset[-1, 1]
 
         # Create in memory storage
-        buffer = np.zeros([length], dtype=dtype)
+        if ncmp > 1:
+            shape = (length, ncmp)
+        else:
+            shape = (length, )
+        buffer = np.zeros(shape, dtype=dtype)
 
         # Populate storage in memory
         ngrids = self.grids_per_level[ilevel]
@@ -364,20 +374,21 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
 
             array = data.GetAbstractArray(name)
 
-            this_offset = ncmp*offset[igrid, 0]
-            this_length = ncmp*offset[igrid, 1]
+            this_offset = offset[igrid, 0]
+            this_length = offset[igrid, 1]
 
-            buffer[this_offset:this_offset+this_length] = \
-                nps.vtk_to_numpy(array).flatten()
+            buffer[this_offset:this_offset+this_length, ...] = \
+                nps.vtk_to_numpy(array)
 
         # When VTK read the VTH file it changes the blanking information based
         # on the levels overlapping information. This is not desired to be
         # written out again.
         # Only write out HIDDENCELL bits and leave others at 0
         #
-        # This could maybe be considered a bug in VTK internals. The correct
-        # approach would be that VTK completely re-compute all REFINEDCELL
-        # bits and ignored those when reading.
+        # Update: VTK is updated to fix this behavior, but I keep this code
+        # for some time until these changes have propagated into at least
+        # one official Paraview release.
+        # Ref: https://gitlab.kitware.com/vtk/vtk/-/merge_requests/8986
         if name == vtk.vtkDataSetAttributes.GhostArrayName():
             buffer = self.fix_iblank(buffer)
 
@@ -385,15 +396,12 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
         chunks = None
         maxshape = None
         if self.N and ngrids >= self.N and (not typ == "field"):
-            chunks = (self.N*length//ncmp//ngrids, )
+            chunks = (self.N*length//ngrids, ncmp)
             maxshape = buffer.shape
 
         # Write to disk
-        dset = fileh.create_dataset(name, data=buffer, chunks=chunks,
-                                    maxshape=maxshape)
-
-        # Array attributes
-        dset.attrs.create("NumberOfComponents", ncmp)
+        fileh.create_dataset(name, data=buffer, chunks=chunks,
+                             maxshape=maxshape)
 
     @staticmethod
     def fix_iblank(data):
@@ -482,7 +490,9 @@ class PythonAMRHDFReader(PythonAMRHDFBase):
             self.nlevels = vtkhdf.attrs["NumberOfLevels"]
             self.grids_per_level = vtkhdf.attrs["NumberOfDataSets"]
             self.global_origin = vtkhdf.attrs["Origin"]
-            self.desc = self.str_to_desc(vtkhdf.attrs["GridDescription"])
+
+            descattr = vtkhdf.attrs["GridDescription"].decode("ascii")
+            self.desc = self.str_to_desc(descattr)
 
             # Limit reading to a specific number of levels
             if hasattr(self, 'nlevels_max') and self.nlevels_max > 0:
@@ -570,9 +580,8 @@ class PythonAMRHDFReader(PythonAMRHDFBase):
 
     def read_array(self, amr, ilevel, fileh, offset, arr, typ):
         ngrids = self.grids_per_level[ilevel]
-        ncmp = fileh[arr].attrs['NumberOfComponents']
 
-        # Read the entire dataset in 1D memory buffer
+        # Read the entire dataset in memory buffer
         buffer = fileh[arr][...]
 
         # Populate AMR structure in memory
@@ -591,13 +600,10 @@ class PythonAMRHDFReader(PythonAMRHDFBase):
             else:
                 raise RuntimeError(f"Invalid type: {typ}")
 
-            this_offset = ncmp*offset[igrid, 0]
-            this_length = ncmp*offset[igrid, 1]
+            this_offset = offset[igrid, 0]
+            this_length = offset[igrid, 1]
 
-            # Reshape to number of cells/points times number of components
-            view = buffer[this_offset:this_offset+this_length]. \
-                reshape((offset[igrid, 1], ncmp))
-
+            view = buffer[this_offset:this_offset+this_length, ...]
             array = nps.numpy_to_vtk(view, deep=1)
             array.SetName(arr)
             data.AddArray(array)

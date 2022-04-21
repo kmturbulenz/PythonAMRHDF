@@ -29,3 +29,4 @@ The implementation has the following limitations:
     for maximum performance.
 
 See also the `VTK forum discussion thread <https://discourse.vtk.org/t/overlapping-amr-support-in-vtkhdf/7868>`_
+and the associated `merge request <https://gitlab.kitware.com/vtk/vtk/-/merge_requests/9065>`_.
