@@ -396,7 +396,10 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
         chunks = None
         maxshape = None
         if self.N and ngrids >= self.N and (not typ == "field"):
-            chunks = (self.N*length//ngrids, ncmp)
+            if len(buffer.shape) == 1:
+                chunks = (self.N*length//ncmp//ngrids, )
+            else:
+                chunks = (self.N*length//ncmp//ngrids, ncmp)
             maxshape = buffer.shape
 
         # Write to disk
