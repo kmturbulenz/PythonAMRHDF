@@ -1,10 +1,11 @@
-name: Python package
+name: Test Python
 
 on:
   push:
     branches: [ $default-branch ]
   pull_request:
     branches: [ $default-branch ]
+  workflow_dispatch: ~
 
 jobs:
   build:
