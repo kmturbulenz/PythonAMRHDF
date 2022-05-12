@@ -2,9 +2,9 @@ name: Test Python
 
 on:
   push:
-    branches: [ $default-branch ]
+    branches: [ master ]
   pull_request:
-    branches: [ $default-branch ]
+    branches: [ master ]
   workflow_dispatch: ~
 
 jobs:
@@ -36,4 +36,4 @@ jobs:
         flake8 . --count --exit-zero --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
-        python -m pip pytest
+        python -m pytest
