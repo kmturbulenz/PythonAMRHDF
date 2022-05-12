@@ -1,6 +1,41 @@
-[build-system]
-requires = [
-    "setuptools >= 40.9.0",
-    "wheel",
+[project]
+name = "PythonAMRHDF"
+dynamic = ["version"]
+description = "Python-based vtkOverlappingAMR HDF5 reader and writer"
+readme = "README.rst"
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+keywords = ["VTK", "OverlappingAMR", "HDF5"]
+authors = [
+    {email = "h.strandenes@km-turbulenz.no"},
+    {name = "Håkon Strandenes"}
 ]
-build-backend = "setuptools.build_meta"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Topic :: Scientific/Engineering :: Visualization"
+]
+
+dependencies = [
+    "numpy",
+    "h5py >= 3.3.0",
+    "vtk >= 9.1.0"
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "PythonAMRHDF.__version__"}
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "flake8"
+]
+
+[project.urls]
+homepage = "https://github.com/hakostra/PythonAMRHDF"
+repository = "https://github.com/hakostra/PythonAMRHDF"
+
+[project.scripts]
+PythonAMRHDF = "PythonAMRHDF:main"

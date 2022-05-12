@@ -30,3 +30,12 @@ The implementation has the following limitations:
 
 See also the `VTK forum discussion thread <https://discourse.vtk.org/t/overlapping-amr-support-in-vtkhdf/7868>`_
 and the associated `merge request <https://gitlab.kitware.com/vtk/vtk/-/merge_requests/9065>`_.
+
+************
+Installation
+************
+
+Setuptools must be of version 61.0 or greater.
+
+After having checked out the repository you can either do an editable install
+with ``pip install -e .`` or a ordinary installation with ``pip install -e .``.

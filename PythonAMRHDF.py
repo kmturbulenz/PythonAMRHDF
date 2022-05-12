@@ -769,7 +769,13 @@ def main():
     parser.add_argument("--output", help="Output file")
     parser.add_argument("--register_plugin", action="store_true",
                         default=False, help="Register ParaView plugin")
+    parser.add_argument("--version", action="store_true",
+                        default=False, help="Print version and quit")
     args = parser.parse_args()
+
+    if args.version:
+        print(f"PythonAMRHDF version {__version__}")
+        return
 
     if args.register_plugin:
         register_plugin()
