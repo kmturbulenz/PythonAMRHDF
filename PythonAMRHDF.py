@@ -4,6 +4,7 @@
 import argparse
 import configparser
 import os
+from pathlib import Path
 import resource
 import shutil
 import timeit
@@ -17,7 +18,7 @@ from vtk.util import numpy_support as nps
 from vtk.util.vtkAlgorithm import VTKPythonAlgorithmBase
 
 
-__version__ = "0.1"
+__version__ = "0.9"
 
 
 class PythonAMRHDFBase(VTKPythonAlgorithmBase):
@@ -38,9 +39,13 @@ class PythonAMRHDFBase(VTKPythonAlgorithmBase):
         if isinstance(filename, str):
             if self.filename != filename:
                 self.filename = filename
-                self.Modified()
+        elif isinstance(filename, Path):
+            if self.filename != str(filename):
+                self.filename = str(filename)
         else:
             raise RuntimeError(f"Expected str, got {type(filename)}")
+
+        self.Modified()
 
     def GetFileName(self):
         return self.filename
@@ -84,32 +89,6 @@ class PythonAMRHDFBase(VTKPythonAlgorithmBase):
 
     def GetRdcc_nslots(self):
         return self.rdcc_nslots
-
-    @staticmethod
-    def desc_to_str(desc):
-        if desc == vtk.VTK_XYZ_GRID:
-            return "VTK_XYZ_GRID"
-        elif desc == vtk.VTK_YZ_PLANE:
-            return "VTK_YZ_PLANE"
-        elif desc == vtk.VTK_XZ_PLANE:
-            return "VTK_XZ_PLANE"
-        elif desc == vtk.VTK_XY_PLANE:
-            return "VTK_XY_PLANE"
-        else:
-            raise RuntimeError(f"Invalid description: {desc}")
-
-    @staticmethod
-    def str_to_desc(desc):
-        if desc == "VTK_XYZ_GRID":
-            return vtk.VTK_XYZ_GRID
-        elif desc == "VTK_YZ_PLANE":
-            return vtk.VTK_YZ_PLANE
-        elif desc == "VTK_XZ_PLANE":
-            return vtk.VTK_XZ_PLANE
-        elif desc == "VTK_XY_PLANE":
-            return vtk.VTK_XY_PLANE
-        else:
-            raise RuntimeError(f"Invalid description: {desc}")
 
     def amrbox_to_offset(self, amrbox):
         ngrids = amrbox.shape[0]
@@ -199,6 +178,9 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
         self.write(amr)
         return 1
 
+    def SetInputData(self, data):
+        return self.SetInputDataObject(0, data)
+
     def write(self, amr):
         if not self.filename:
             raise RuntimeError("Input filename is not set")
@@ -207,7 +189,7 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
         self.nlevels = amr.GetNumberOfLevels()
 
         # Number of grids per level
-        self.grids_per_level = np.zeros([self.nlevels], dtype=np.int32)
+        self.grids_per_level = np.zeros([self.nlevels], dtype=np.intc)
         for ilevel in range(self.nlevels):
             self.grids_per_level[ilevel] = amr.GetNumberOfDataSets(ilevel)
 
@@ -221,8 +203,6 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
         self.global_origin = np.array([bounds[0], bounds[2], bounds[4]])
 
         # Grid description
-        # DISCUSS:
-        # Store as string (more human friendly) or int (more machine friendly)?
         self.desc = amr.GetGridDescription()
 
         # Create HDF5 output file
@@ -235,18 +215,6 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
             vtkhdf.attrs.create("Type", typeattr,
                                 dtype=h5.string_dtype('ascii', len(typeattr)))
             vtkhdf.attrs.create("Origin", self.global_origin)
-
-            descrattr = self.desc_to_str(self.desc).encode('ascii')
-            vtkhdf.attrs.create("GridDescription", descrattr,
-                                dtype=h5.string_dtype('ascii', len(descrattr)))
-
-            # Strictly speaking not neccesary - possible to discuss
-            # NumberOfLevels is very handy when reading back in
-            vtkhdf.attrs.create("NumberOfLevels", self.nlevels)
-
-            # Strictly speaking not neccesary - possible to discuss
-            # DISCUSS: What should this be called????
-            vtkhdf.attrs.create("NumberOfDataSets", self.grids_per_level)
 
             # Write out/convert one level at a time
             for ilevel in range(self.nlevels):
@@ -279,7 +247,7 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
 
     def get_amrbox(self, amr, ilevel):
         ngrids = self.grids_per_level[ilevel]
-        amrbox = np.zeros([ngrids, 6], dtype=np.int32)
+        amrbox = np.zeros([ngrids, 6], dtype=np.intc)
         for igrid in range(ngrids):
             this_amrbox = amr.GetAMRBox(ilevel, igrid)
             this_amrbox.GetDimensions(amrbox[igrid, :])
@@ -462,6 +430,9 @@ class PythonAMRHDFReader(PythonAMRHDFBase):
 
         return 1
 
+    def GetOutput(self):
+        return self.GetOutputDataObject(0)
+
     def init_selections(self):
         if not self.filename:
             raise RuntimeError("Input filename is not set")
@@ -486,20 +457,15 @@ class PythonAMRHDFReader(PythonAMRHDFBase):
                      rdcc_w0=self.rdcc_w0, rdcc_nslots=self.rdcc_nslots) as fh:
             vtkhdf = fh["VTKHDF"]
 
-            # Here it is obvious why NumberOfLevels and GridsPerLevel is useful
-            # They could also have been searched for in other parts of the
-            # file, but having them readily available makes the
-            # implementation much simpler
-            self.nlevels = vtkhdf.attrs["NumberOfLevels"]
-            self.grids_per_level = vtkhdf.attrs["NumberOfDataSets"]
+            self.nlevels, self.grids_per_level = self.levels_and_grids(vtkhdf)
             self.global_origin = vtkhdf.attrs["Origin"]
-
-            descattr = vtkhdf.attrs["GridDescription"].decode("ascii")
-            self.desc = self.str_to_desc(descattr)
 
             # Limit reading to a specific number of levels
             if hasattr(self, 'nlevels_max') and self.nlevels_max > 0:
                 self.nlevels = min(self.nlevels, self.nlevels_max)
+
+            # Determine GridDescription from AMRBox at level 0
+            self.desc = self.desc_from_amrbox(vtkhdf["Level0"]["AMRBox"])
 
             amr.Initialize(self.nlevels, self.grids_per_level)
             amr.SetOrigin(self.global_origin)
@@ -610,6 +576,36 @@ class PythonAMRHDFReader(PythonAMRHDFBase):
             array = nps.numpy_to_vtk(view, deep=1)
             array.SetName(arr)
             data.AddArray(array)
+
+    @staticmethod
+    def desc_from_amrbox(amrbox):
+        # If first grid is 2D all other grids are assumed to be 2D
+        box0 = amrbox[0, ...]
+
+        # AMRBox of 2D datasets are from 0 to -1 in the plane-normal direction,
+        # therefore check if the upper coordinate is negative
+        #
+        # OverlappingAMR does not support 1D datasets so no need to check for
+        # that
+        if box0[1] < 0:
+            return vtk.VTK_YZ_PLANE
+        elif box0[3] < 0:
+            return vtk.VTK_XZ_PLANE
+        elif box0[5] < 0:
+            return vtk.VTK_XY_PLANE
+
+        return vtk.VTK_XYZ_GRID
+
+    @staticmethod
+    def levels_and_grids(vtkhdf):
+        nlevels = 0
+        grids_per_level = []
+        while f"Level{nlevels}" in vtkhdf:
+            amrbox = vtkhdf[f"Level{nlevels}"]["AMRBox"]
+            grids_per_level.append(amrbox.shape[0])
+            nlevels += 1
+
+        return nlevels, np.array(grids_per_level, dtype=np.intc)
 
 
 try:
