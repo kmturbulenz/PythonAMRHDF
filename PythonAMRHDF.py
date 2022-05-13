@@ -234,11 +234,6 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
                 level_h.create_dataset("AMRBox", data=amrbox)
 
                 # Write point/cell data for this level
-                # It is *required* to create empty groups in case
-                # there are no Point/cell/Field data to be written,
-                # that makes the reader inplementation simpler
-                # (no need to check for the precense of a group before
-                # opening)
                 pointdata = level_h.create_group("PointData")
                 celldata = level_h.create_group("CellData")
                 fielddata = level_h.create_group("FieldData")
@@ -258,9 +253,6 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
         offset_fd = self.fielddata_offset(amrbox.shape[0])
 
         # Query first grid for which arrays it has
-        # Note: This reader is not designed to be 100% generic and consistent,
-        # maybe there are valid and useful applications where this
-        # approach do not work?
         dataset0 = amr.GetDataSet(ilevel, 0)
         point_arrays = self.find_arrays(dataset0.GetPointData())
         cell_arrays = self.find_arrays(dataset0.GetCellData())
@@ -315,6 +307,13 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
         name = arr["name"]
         dtype = arr["dtype"]
         ncmp = arr["ncmp"]
+        ntup = arr["ntup"]
+        nval = arr["nval"]
+
+        # For fielddata all elements must have same length on all grids, scale
+        # with number of values (make deep copy)
+        if typ == "field":
+            offset = np.array(nval//ncmp*offset)
 
         # Overall length of data is the offset + length of the last element
         length = offset[-1, 0] + offset[-1, 1]
@@ -529,29 +528,41 @@ class PythonAMRHDFReader(PythonAMRHDFBase):
         offset_fd = self.fielddata_offset(amrbox.shape[0])
 
         # Read data
-        for arr in level_h["PointData"].keys():
-            if not self.pt_selection.ArrayIsEnabled(arr):
-                continue
+        if "PointData" in level_h:
+            for arr in level_h["PointData"].keys():
+                if not self.pt_selection.ArrayIsEnabled(arr):
+                    continue
 
-            self.read_array(amr, ilevel, level_h["PointData"],
-                            offset_pt, arr, "point")
+                self.read_array(amr, ilevel, level_h["PointData"],
+                                offset_pt, arr, "point")
 
-        for arr in level_h["CellData"].keys():
-            if not self.cl_selection.ArrayIsEnabled(arr):
-                continue
+        if "CellData" in level_h:
+            for arr in level_h["CellData"].keys():
+                if not self.cl_selection.ArrayIsEnabled(arr):
+                    continue
 
-            self.read_array(amr, ilevel, level_h["CellData"],
-                            offset_cl, arr, "cell")
+                self.read_array(amr, ilevel, level_h["CellData"],
+                                offset_cl, arr, "cell")
 
-        for arr in level_h["FieldData"].keys():
-            self.read_array(amr, ilevel, level_h["FieldData"],
-                            offset_fd, arr, "field")
+        if "FieldData" in level_h:
+            for arr in level_h["FieldData"].keys():
+                self.read_array(amr, ilevel, level_h["FieldData"],
+                                offset_fd, arr, "field")
 
     def read_array(self, amr, ilevel, fileh, offset, arr, typ):
         ngrids = self.grids_per_level[ilevel]
 
         # Read the entire dataset in memory buffer
         buffer = fileh[arr][...]
+
+        # Dirty hack for FieldData
+        if typ == "field":
+            # Here every grid must have the same length (=number of values)
+            if buffer.shape[0] % ngrids > 0:
+                raise RuntimeError(f"Invalid length of array: {buffer.shape}")
+
+            nval = buffer.shape[0]//ngrids
+            offset = np.array(nval*offset)
 
         # Populate AMR structure in memory
         for igrid in range(ngrids):
