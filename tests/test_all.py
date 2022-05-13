@@ -234,12 +234,6 @@ def test_pulse_fielddata(tmp_path):
         igrid_arr.SetName('IGRID')
         grid.GetFieldData().AddArray(igrid_arr)
 
-        igrid_arr = vtk.vtkIntArray()
-        igrid_arr.SetNumberOfValues(1)
-        igrid_arr.SetValue(0, igrid)
-        igrid_arr.SetName('IGRID')
-        grid.GetFieldData().AddArray(igrid_arr)
-
         freq_arr = vtk.vtkDoubleArray()
         freq_arr.SetNumberOfValues(nfreqs)
         for i in range(nfreqs):
