@@ -307,7 +307,6 @@ class PythonAMRHDFWriter(PythonAMRHDFBase):
         name = arr["name"]
         dtype = arr["dtype"]
         ncmp = arr["ncmp"]
-        ntup = arr["ntup"]
         nval = arr["nval"]
 
         # For fielddata all elements must have same length on all grids, scale
