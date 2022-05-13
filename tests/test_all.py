@@ -46,6 +46,7 @@ def _validate_grid(original, result):
 
     assert _validate_data(original.GetCellData(), result.GetCellData())
     assert _validate_data(original.GetPointData(), result.GetPointData())
+    assert _validate_data(original.GetFieldData(), result.GetFieldData())
 
     return True
 
@@ -207,3 +208,54 @@ def test_arrayselection(tmp_path):
     first_dataset = reader.GetOutput().GetDataSet(0, 0)
     assert not first_dataset.GetCellData().GetArray("Gaussian-Pulse")
     assert first_dataset.GetCellData().GetArray("Centroid")
+
+
+def test_pulse_fielddata(tmp_path):
+    """Test reading/writing fielddata of various lengths"""
+    filename = tmp_path / "gaussian_pulse_fielddata.hdf"
+
+    pulse = vtk.vtkAMRGaussianPulseSource()
+    pulse.Update()
+    pulsedata = pulse.GetOutput()
+
+    # Add some fielddata to all datasets
+    freqs = np.array([100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0],
+                     dtype=np.double)
+    nfreqs = freqs.shape[0]
+    igrid = 0
+    iter = pulsedata.NewIterator()
+    while not iter.IsDoneWithTraversal():
+        grid = iter.GetCurrentDataObject()
+        igrid += 1
+
+        igrid_arr = vtk.vtkIntArray()
+        igrid_arr.SetNumberOfValues(1)
+        igrid_arr.SetValue(0, igrid)
+        igrid_arr.SetName('IGRID')
+        grid.GetFieldData().AddArray(igrid_arr)
+
+        igrid_arr = vtk.vtkIntArray()
+        igrid_arr.SetNumberOfValues(1)
+        igrid_arr.SetValue(0, igrid)
+        igrid_arr.SetName('IGRID')
+        grid.GetFieldData().AddArray(igrid_arr)
+
+        freq_arr = vtk.vtkDoubleArray()
+        freq_arr.SetNumberOfValues(nfreqs)
+        for i in range(nfreqs):
+            freq_arr.SetValue(i, freqs[i])
+        freq_arr.SetName('FREQUENCY')
+        grid.GetFieldData().AddArray(freq_arr)
+
+        iter.GoToNextItem()
+
+    writer = PythonAMRHDF.PythonAMRHDFWriter()
+    writer.SetFileName(filename)
+    writer.SetInputData(pulsedata)
+    writer.Write()
+
+    reader = PythonAMRHDF.PythonAMRHDFReader()
+    reader.SetFileName(filename)
+    reader.Update()
+
+    assert _validate_amr(pulse.GetOutput(), reader.GetOutput())

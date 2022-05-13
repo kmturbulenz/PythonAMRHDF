@@ -31,11 +31,27 @@ The implementation has the following limitations:
 See also the `VTK forum discussion thread <https://discourse.vtk.org/t/overlapping-amr-support-in-vtkhdf/7868>`_
 and the associated `merge request <https://gitlab.kitware.com/vtk/vtk/-/merge_requests/9065>`_.
 
+
 ************
 Installation
 ************
 
-Setuptools must be of version 61.0 or greater.
+The only thing you need is the file ``PythonAMRHDF.py``. This file serve
+both as a Python module that can be imported (``import PythonAMRHDF``),
+a Paraview plugin ("Tools" -> "Manage Plugins..." -> "Load New") and a
+standalone CLI converter tool ("./PythonAMRHDF.py --help").
 
-After having checked out the repository you can either do an editable install
-with ``pip install -e .`` or a ordinary installation with ``pip install -e .``.
+It is also possible to install it as a Python package. In that case you need
+setuptools version 61.0 or greater, and the easiest is to install it directly
+from Github:
+``pip install git+https://github.com/kmturbulenz/PythonAMRHDF.git``
+
+If you checkout the repository you can also install it in editable mode:
+``pip install -e .`` or as an ordinary package with ``pip install .``.
+
+
+*****************
+Running testcases
+*****************
+In the main directory of the repository, run ``flake8`` and
+``python3 -m pytest``.
