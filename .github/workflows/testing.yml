@@ -27,7 +27,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
         python -m pip install numpy h5py
-        python -m pip install https://github.com/hakostra/vtk_build/releases/download/20211118/vtk-9.1.20211118.dev0-cp38-cp38-linux_x86_64.whl
+        python -m pip install https://github.com/kmturbulenz/vtk-osmesa-build/releases/download/9.1.20220519/vtk-9.1.20220519.dev0-cp38-cp38-linux_x86_64.whl
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
