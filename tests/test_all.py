@@ -78,8 +78,36 @@ def _validate_data(original, result):
     return True
 
 
+def _add_grid_to_amr(amr, ilevel, igrid, amrbox):
+    # Adds another grid to the AMR, assumes that the global origin
+    # is 0.0, 0.0, 0.0. The grid has a random cell array "Phi".
+    nx = (amrbox[1] - amrbox[0]) + 1
+    ny = (amrbox[3] - amrbox[2]) + 1
+    nz = (amrbox[5] - amrbox[4]) + 1
+
+    box = vtk.vtkAMRBox(amrbox)
+    amr.SetAMRBox(ilevel, igrid, box)
+
+    dx = np.zeros((3, ), dtype=np.double)
+    amr.GetSpacing(ilevel, dx)
+
+    grid = vtk.vtkUniformGrid()
+    grid.SetSpacing(dx)
+    grid.SetDimensions((nx+1, ny+1, nz+1))
+    grid.SetOrigin((dx[0]*amrbox[0], dx[1]*amrbox[2], dx[2]*amrbox[4], ))
+
+    rng = np.random.default_rng(0)
+    phi = rng.random((nx, ny, nz)).flatten()
+    array = nps.numpy_to_vtk(phi, deep=1)
+    array.SetName("Phi")
+    grid.GetCellData().AddArray(array)
+
+    amr.SetDataSet(ilevel, igrid, grid)
+
+
 def test_pulse1(tmp_path):
-    """Test reading/writing roundtrip with the Python reader/writer"""
+    """Test reading/writing roundtrip with the Python reader/writer, check that
+    the VTK implemented reader gives the same result"""
     filename = tmp_path / "gaussian_pulse.hdf"
 
     pulse = vtk.vtkAMRGaussianPulseSource()
@@ -89,12 +117,18 @@ def test_pulse1(tmp_path):
     writer.SetInputConnection(pulse.GetOutputPort())
     writer.Write()
 
-    reader = PythonAMRHDF.PythonAMRHDFReader()
-    reader.SetFileName(filename)
-    reader.SetMaximumLevelsToReadByDefault(0)
-    reader.Update()
+    reader1 = PythonAMRHDF.PythonAMRHDFReader()
+    reader1.SetFileName(filename)
+    reader1.SetMaximumLevelsToReadByDefault(0)
+    reader1.Update()
 
-    assert _validate_amr(pulse.GetOutput(), reader.GetOutput())
+    reader2 = vtk.vtkHDFReader()
+    reader2.SetFileName(filename)
+    reader2.SetMaximumLevelsToReadByDefaultForAMR(0)
+    reader2.Update()
+
+    assert _validate_amr(pulse.GetOutput(), reader1.GetOutput())
+    assert _validate_amr(pulse.GetOutput(), reader2.GetOutput())
 
 
 def test_pulse2(tmp_path):
@@ -111,12 +145,18 @@ def test_pulse2(tmp_path):
     writer.SetInputData(pulsedata)
     writer.Write()
 
-    reader = PythonAMRHDF.PythonAMRHDFReader()
-    reader.SetFileName(filename)
-    reader.SetMaximumLevelsToReadByDefault(0)
-    reader.Update()
+    reader1 = PythonAMRHDF.PythonAMRHDFReader()
+    reader1.SetFileName(filename)
+    reader1.SetMaximumLevelsToReadByDefault(0)
+    reader1.Update()
 
-    assert _validate_amr(pulsedata, reader.GetOutput())
+    reader2 = vtk.vtkHDFReader()
+    reader2.SetFileName(filename)
+    reader2.SetMaximumLevelsToReadByDefaultForAMR(0)
+    reader2.Update()
+
+    assert _validate_amr(pulsedata, reader1.GetOutput())
+    assert _validate_amr(pulsedata, reader2.GetOutput())
 
 
 def test_pulse_chunked(tmp_path):
@@ -134,12 +174,18 @@ def test_pulse_chunked(tmp_path):
     writer.SetChunkFactor(2)
     writer.Write()
 
-    reader = PythonAMRHDF.PythonAMRHDFReader()
-    reader.SetFileName(filename)
-    reader.SetMaximumLevelsToReadByDefault(0)
-    reader.Update()
+    reader1 = PythonAMRHDF.PythonAMRHDFReader()
+    reader1.SetFileName(filename)
+    reader1.SetMaximumLevelsToReadByDefault(0)
+    reader1.Update()
 
-    assert _validate_amr(pulsedata, reader.GetOutput())
+    reader2 = vtk.vtkHDFReader()
+    reader2.SetFileName(filename)
+    reader2.SetMaximumLevelsToReadByDefaultForAMR(0)
+    reader2.Update()
+
+    assert _validate_amr(pulsedata, reader1.GetOutput())
+    assert _validate_amr(pulsedata, reader2.GetOutput())
 
 
 def test_pulse_2d(tmp_path):
@@ -177,13 +223,19 @@ def test_maximumlevels(tmp_path):
     writer.SetInputConnection(pulse.GetOutputPort())
     writer.Write()
 
-    reader = PythonAMRHDF.PythonAMRHDFReader()
-    reader.SetFileName(filename)
-
+    reader1 = PythonAMRHDF.PythonAMRHDFReader()
+    reader1.SetFileName(filename)
     for levels in range(nlevels):
-        reader.SetMaximumLevelsToReadByDefault(levels + 1)
-        reader.Update()
-        assert reader.GetOutput().GetNumberOfLevels() == levels + 1
+        reader1.SetMaximumLevelsToReadByDefault(levels + 1)
+        reader1.Update()
+        assert reader1.GetOutput().GetNumberOfLevels() == levels + 1
+
+    reader2 = vtk.vtkHDFReader()
+    reader2.SetFileName(filename)
+    for levels in range(nlevels):
+        reader2.SetMaximumLevelsToReadByDefaultForAMR(levels + 1)
+        reader2.Update()
+        assert reader2.GetOutput().GetNumberOfLevels() == levels + 1
 
 
 def test_arrayselection(tmp_path):
@@ -197,15 +249,27 @@ def test_arrayselection(tmp_path):
     writer.SetInputConnection(pulse.GetOutputPort())
     writer.Write()
 
-    reader = PythonAMRHDF.PythonAMRHDFReader()
-    reader.SetFileName(filename)
+    reader1 = PythonAMRHDF.PythonAMRHDFReader()
+    reader1.SetFileName(filename)
 
-    reader.UpdateInformation()
-    reader.GetCellDataArraySelection().DisableAllArrays()
-    reader.GetCellDataArraySelection().EnableArray("Centroid")
-    reader.Update()
+    reader1.UpdateInformation()
+    reader1.GetCellDataArraySelection().DisableAllArrays()
+    reader1.GetCellDataArraySelection().EnableArray("Centroid")
+    reader1.Update()
 
-    first_dataset = reader.GetOutput().GetDataSet(0, 0)
+    first_dataset = reader1.GetOutput().GetDataSet(0, 0)
+    assert not first_dataset.GetCellData().GetArray("Gaussian-Pulse")
+    assert first_dataset.GetCellData().GetArray("Centroid")
+
+    reader2 = vtk.vtkHDFReader()
+    reader2.SetFileName(filename)
+
+    reader2.UpdateInformation()
+    reader2.GetCellDataArraySelection().DisableAllArrays()
+    reader2.GetCellDataArraySelection().EnableArray("Centroid")
+    reader2.Update()
+
+    first_dataset = reader2.GetOutput().GetDataSet(0, 0)
     assert not first_dataset.GetCellData().GetArray("Gaussian-Pulse")
     assert first_dataset.GetCellData().GetArray("Centroid")
 
@@ -248,8 +312,57 @@ def test_pulse_fielddata(tmp_path):
     writer.SetInputData(pulsedata)
     writer.Write()
 
-    reader = PythonAMRHDF.PythonAMRHDFReader()
-    reader.SetFileName(filename)
-    reader.Update()
+    reader1 = PythonAMRHDF.PythonAMRHDFReader()
+    reader1.SetFileName(filename)
+    reader1.Update()
 
-    assert _validate_amr(pulse.GetOutput(), reader.GetOutput())
+    reader2 = vtk.vtkHDFReader()
+    reader2.SetFileName(filename)
+    reader2.Update()
+
+    assert _validate_amr(pulse.GetOutput(), reader1.GetOutput())
+    assert _validate_amr(pulse.GetOutput(), reader2.GetOutput())
+
+
+def test_read_varlength(tmp_path):
+    """Test reading/writing arrays of various lengths"""
+    filename = tmp_path / "varlength.hdf"
+
+    amr = vtk.vtkOverlappingAMR()
+
+    amr.Initialize(3, (1, 3, 1, ))
+    amr.SetOrigin((0.0, 0.0, 0.0))
+
+    amr.SetRefinementRatio(0, 2)
+    amr.SetRefinementRatio(1, 2)
+    amr.SetRefinementRatio(2, 2)
+
+    amr.SetSpacing(0, (1.0/32.0, 1.0/32.0, 1.0/32.0, ))
+    amr.SetSpacing(1, (1.0/64.0, 1.0/64.0, 1.0/64.0, ))
+    amr.SetSpacing(2, (1.0/128.0, 1.0/128.0, 1.0/128.0, ))
+
+    # Add grids with random data
+    _add_grid_to_amr(amr, 0, 0, (0, 31, 0, 15, 0, 23))
+    _add_grid_to_amr(amr, 1, 0, (0, 31, 0, 15, 0, 23))
+    _add_grid_to_amr(amr, 1, 1, (32, 47, 16, 23, 24, 35))
+    _add_grid_to_amr(amr, 1, 2, (32, 63, 0, 13, 24, 35))
+    _add_grid_to_amr(amr, 2, 0, (64, 95, 32, 39, 48, 71))
+
+    amr.Audit()
+    vtk.vtkAMRUtilities.BlankCells(amr)
+
+    writer = PythonAMRHDF.PythonAMRHDFWriter()
+    writer.SetFileName(filename)
+    writer.SetInputData(amr)
+    writer.Write()
+
+    reader1 = PythonAMRHDF.PythonAMRHDFReader()
+    reader1.SetFileName(filename)
+    reader1.Update()
+
+    reader2 = vtk.vtkHDFReader()
+    reader2.SetFileName(filename)
+    reader2.Update()
+
+    assert _validate_amr(amr, reader1.GetOutput())
+    assert _validate_amr(amr, reader2.GetOutput())
