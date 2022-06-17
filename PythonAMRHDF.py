@@ -18,7 +18,7 @@ from vtk.util import numpy_support as nps
 from vtk.util.vtkAlgorithm import VTKPythonAlgorithmBase
 
 
-__version__ = "0.9"
+__version__ = "1.0"
 
 
 class PythonAMRHDFBase(VTKPythonAlgorithmBase):
