@@ -34,8 +34,8 @@ test = [
 ]
 
 [project.urls]
-homepage = "https://github.com/hakostra/PythonAMRHDF"
-repository = "https://github.com/hakostra/PythonAMRHDF"
+homepage = "https://github.com/kmturbulenz/PythonAMRHDF"
+repository = "https://github.com/kmturbulenz/PythonAMRHDF"
 
 [project.scripts]
 PythonAMRHDF = "PythonAMRHDF:main"
