@@ -38,7 +38,7 @@ Installation
 The only thing you need is the file ``PythonAMRHDF.py``. This file serve
 both as a Python module that can be imported (``import PythonAMRHDF``),
 a Paraview plugin ("Tools" -> "Manage Plugins..." -> "Load New") and a
-standalone CLI converter tool ("./PythonAMRHDF.py --help").
+standalone CLI converter tool (``./PythonAMRHDF.py --help``).
 
 It is also possible to install it as a Python package. In that case you need
 setuptools version 61.0 or greater, and the easiest is to install it directly
