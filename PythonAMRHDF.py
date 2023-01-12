@@ -2,13 +2,10 @@
 
 # Python standard library imports
 import argparse
-import configparser
 import os
 from pathlib import Path
 import resource
-import shutil
 import timeit
-import xml.etree.ElementTree as ET
 
 # Third party packages
 import h5py as h5
@@ -18,7 +15,7 @@ from vtk.util import numpy_support as nps
 from vtk.util.vtkAlgorithm import VTKPythonAlgorithmBase
 
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 
 class PythonAMRHDFBase(VTKPythonAlgorithmBase):
@@ -672,78 +669,6 @@ else:
             return super().SetFileName(filename)
 
 
-def register_plugin():
-    # Check if ParaView settings file can be found - only add to most recent
-    # file
-    pv_config_files = ["ParaView5.10.0.ini",
-                       "ParaView5.9.1.ini",
-                       "ParaView5.9.0.ini"]
-    pv_config_path = os.path.expanduser("~/.config/ParaView")
-    pv_config_file = None
-    for filename in pv_config_files:
-        pv_config_file = os.path.join(pv_config_path, filename)
-        if os.path.exists(pv_config_file):
-            break
-
-    if not pv_config_file:
-        print("Could not find ParaView configuration file")
-        return
-
-    print(f"Using Paraview settings from: {pv_config_file}")
-    plugin_path = os.path.abspath(__file__)
-    print(f"Registering plugin: {plugin_path}")
-
-    config = configparser.ConfigParser()
-    config.optionxform = str
-    config.read(pv_config_file)
-
-    plugins_list = config['PluginsList']
-    for binary in plugins_list:
-        tree = ET.ElementTree(ET.fromstring(_unescape(plugins_list[binary])))
-        root = tree.getroot()
-        _add_plugin(root, plugin_path)
-
-        xml = ET.tostring(root, encoding='unicode', xml_declaration=True)
-        plugins_list[binary] = _escape(xml)
-
-    # Make backup and write configfile
-    shutil.copyfile(pv_config_file, pv_config_file + ".bak")
-    with open(pv_config_file, 'w') as fh:
-        config.write(fh, space_around_delimiters=False)
-
-
-def _add_plugin(root, plugin_path):
-    exists = False
-    for plugin in root.findall('Plugin'):
-        name = plugin.attrib['name']
-        if name == "PythonAMRHDF":
-            exists = True
-            break
-
-    if not exists:
-        plugin = ET.SubElement(root, 'Plugin',
-                               name="PythonAMRHDF",
-                               filename=plugin_path,
-                               auto_load="1")
-    else:
-        plugin.attrib['filename'] = plugin_path
-        plugin.attrib['auto_load'] = "1"
-
-
-def _unescape(value):
-    xml = bytes(value, "utf-8").decode("unicode_escape")
-    xml = xml[1:-2]
-    return xml
-
-
-def _escape(value):
-    """Dirty hacks to escape according to ParaView expectations"""
-    value = value.replace("\n", "\\n")
-    value = value.replace("\"", "\\\"")
-    value = '"' + value + '"'
-    return value
-
-
 def vth_to_hdf5(input, output):
     tic = timeit.default_timer()
     reader = vtk.vtkXMLUniformGridAMRReader()
@@ -777,18 +702,12 @@ def main():
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument("input", nargs='?', help="Input file")
     parser.add_argument("--output", help="Output file")
-    parser.add_argument("--register_plugin", action="store_true",
-                        default=False, help="Register ParaView plugin")
     parser.add_argument("--version", action="store_true",
                         default=False, help="Print version and quit")
     args = parser.parse_args()
 
     if args.version:
         print(f"PythonAMRHDF version {__version__}")
-        return
-
-    if args.register_plugin:
-        register_plugin()
         return
 
     if not os.path.exists(args.input):
@@ -798,14 +717,17 @@ def main():
     input_file_array = os.path.splitext(input_file)
     input_file_noext = input_file_array[0]
     input_file_ext = input_file_array[1]
-    if args.output:
-        output_file = args.output
-    else:
-        output_file = f"{input_file_noext}.h5"
+
+    # If output filename is specified use that
+    output_file = args.output if args.output else None
 
     if input_file_ext.lower() == ".vth":
+        if not output_file:
+            output_file = f"{input_file_noext}.hdf"
         vth_to_hdf5(args.input, output_file)
     else:
+        if not output_file:
+            output_file = f"{input_file_noext}.vth"
         hdf5_to_vth(args.input, output_file)
 
     maxmem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss//1024
